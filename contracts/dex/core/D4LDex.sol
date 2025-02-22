@@ -73,7 +73,7 @@ contract D4LDex is
         require(tokenIn != tokenOut, "Same token");
         
         // Get router from registry
-        address router = registry.getContractAddress("DEX_ROUTER");
+        address router = registry.getContractAddressByName("DEX_ROUTER");
         require(router != address(0), "Router not found");
 
         // Execute swap through router
@@ -100,7 +100,7 @@ contract D4LDex is
         require(msg.value > 0, "Zero ETH");
 
         // Get router
-        address router = registry.getContractAddress("DEX_ROUTER");
+        address router = registry.getContractAddressByName("DEX_ROUTER");
         require(router != address(0), "Router not found");
 
         // Execute swap
@@ -126,7 +126,7 @@ contract D4LDex is
         require(amountIn > 0, "Zero amount");
 
         // Get router
-        address router = registry.getContractAddress("DEX_ROUTER");
+        address router = registry.getContractAddressByName("DEX_ROUTER");
         require(router != address(0), "Router not found");
 
         // Execute swap
@@ -148,7 +148,7 @@ contract D4LDex is
         address tokenOut,
         uint256 amountIn
     ) external view override returns (uint256) {
-        address router = registry.getContractAddress("DEX_ROUTER");
+        address router = registry.getContractAddressByName("DEX_ROUTER");
         require(router != address(0), "Router not found");
         return IDexRouter(router).getAmountOut(tokenIn, tokenOut, amountIn);
     }
@@ -158,7 +158,7 @@ contract D4LDex is
         uint256 amount,
         bool isBuy
     ) external view override returns (uint256) {
-        address router = registry.getContractAddress("DEX_ROUTER");
+        address router = registry.getContractAddressByName("DEX_ROUTER");
         require(router != address(0), "Router not found");
         return IDexRouter(router).getPriceImpact(token, amount, isBuy);
     }

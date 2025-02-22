@@ -104,5 +104,16 @@ contract TokenomicsRules is Initializable, OwnableUpgradeable, ITokenomics {
         uint256 marketingAmount = calculateMarketingWallet(amount);
         uint256 cexAmount = calculateCEXLiquidity(amount);
         uint256 burnAmount = calculateBurn(amount);
+
+        // Emit event for tracking
+        emit TaxDistributed(
+            amount,
+            communityAmount,
+            teamAmount,
+            dexAmount,
+            treasuryAmount,
+            marketingAmount,
+            cexAmount
+        );
     }
 }

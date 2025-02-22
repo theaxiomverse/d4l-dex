@@ -5,12 +5,19 @@ import "@openzeppelin/contracts-upgradeable/governance/GovernorUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorVotesUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorVotesQuorumFractionUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorTimelockControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorCountingSimpleUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/governance/TimelockControllerUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import "@openzeppelin/contracts/governance/IGovernor.sol";
 import "../interfaces/IContractRegistry.sol";
+import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 abstract contract D4LGovernor is 
     GovernorUpgradeable,
     GovernorVotesUpgradeable,
     GovernorVotesQuorumFractionUpgradeable,
+    GovernorCountingSimpleUpgradeable,
     GovernorTimelockControlUpgradeable 
 {
     // Constants
@@ -28,16 +35,16 @@ abstract contract D4LGovernor is
     }
 
     function initialize(
-        address _token,
-        address _timelock,
-        address _registry
+        IVotes _token,
+        TimelockControllerUpgradeable _timelock,
+        IContractRegistry _registry
     ) external initializer {
         __Governor_init("Degen4Life DAO");
-        __GovernorVotes_init(IVotes(_token));
+        __GovernorVotes_init(_token);
         __GovernorVotesQuorumFraction_init(QUORUM_PERCENTAGE);
-        __GovernorTimelockControl_init(TimelockControllerUpgradeable(_timelock));
+        __GovernorTimelockControl_init(_timelock);
         
-        registry = IContractRegistry(_registry);
+        registry = _registry;
     }
 
     function votingDelay() public pure override returns (uint256) {
@@ -52,7 +59,7 @@ abstract contract D4LGovernor is
         return PROPOSAL_THRESHOLD;
     }
 
-    function COUNTING_MODE() public pure virtual override returns (string memory) {
+    function COUNTING_MODE() public pure virtual override(IGovernor, GovernorCountingSimpleUpgradeable) returns (string memory) {
         return "support=bravo&quorum=for,abstain";
     }
 
@@ -62,19 +69,19 @@ abstract contract D4LGovernor is
         uint8 support,
         uint256 weight,
         bytes memory params
-    ) internal virtual override {
+    ) internal virtual override(GovernorUpgradeable, GovernorCountingSimpleUpgradeable) returns (uint256) {
         return super._countVote(proposalId, account, support, weight, params);
     }
 
-    function _quorumReached(uint256 proposalId) internal view virtual override returns (bool) {
+    function _quorumReached(uint256 proposalId) internal view virtual override(GovernorUpgradeable, GovernorCountingSimpleUpgradeable) returns (bool) {
         return super._quorumReached(proposalId);
     }
 
-    function _voteSucceeded(uint256 proposalId) internal view virtual override returns (bool) {
+    function _voteSucceeded(uint256 proposalId) internal view virtual override(GovernorUpgradeable, GovernorCountingSimpleUpgradeable) returns (bool) {
         return super._voteSucceeded(proposalId);
     }
 
-    function hasVoted(uint256 proposalId, address account) public view virtual override returns (bool) {
+    function hasVoted(uint256 proposalId, address account) public view virtual override(IGovernor, GovernorCountingSimpleUpgradeable) returns (bool) {
         return super.hasVoted(proposalId, account);
     }
 
@@ -84,8 +91,21 @@ abstract contract D4LGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         bytes32 descriptionHash
-    ) internal virtual override {
+    ) internal virtual override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) {
         super._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
+    }
+
+    function _cancel(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal virtual override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) returns (uint256) {
+        return super._cancel(targets, values, calldatas, descriptionHash);
+    }
+
+    function _executor() internal view virtual override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) returns (address) {
+        return super._executor();
     }
 
     function _queueOperations(
@@ -94,7 +114,7 @@ abstract contract D4LGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         bytes32 descriptionHash
-    ) internal virtual override returns (uint48) {
+    ) internal virtual override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) returns (uint48) {
         return super._queueOperations(proposalId, targets, values, calldatas, descriptionHash);
     }
 
@@ -119,7 +139,7 @@ abstract contract D4LGovernor is
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(GovernorUpgradeable, GovernorTimelockControlUpgradeable)
+        override(GovernorUpgradeable)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);

@@ -42,6 +42,45 @@ contract AntiBot is Ownable, ReentrancyGuard, Pausable {
         launchBlock = block.number;
     }
 
+    function validateTransfer(
+        address token,
+        address from,
+        address to,
+        uint256 amount
+    ) external view returns (bool) {
+        if (!protectedTokens[token]) return true;
+        if (!tradingEnabled) return false;
+        
+        // Skip checks for whitelisted addresses
+        if (protection[from].whitelisted || protection[to].whitelisted) {
+            return true;
+        }
+
+        // Check gas price
+        if (tx.gasprice > MAX_GAS_PRICE) {
+            return false;
+        }
+
+        // Check if it's the first transaction for the sender
+        if (protection[from].firstTxTime == 0) {
+            return true; // Allow first transaction
+        }
+
+        // Check minimum hold time
+        if (block.timestamp - protection[from].firstTxTime < MIN_HOLD_TIME) {
+            return false;
+        }
+
+        // Check transaction count in current block
+        if (block.number == protection[from].lastBlockNumber) {
+            if (protection[from].txCount >= MAX_TX_COUNT) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     function enableTrading() external onlyOwner {
         tradingEnabled = true;
         emit TradingEnabled();
@@ -136,5 +175,9 @@ contract AntiBot is Ownable, ReentrancyGuard, Pausable {
     ) {
         BotProtection memory p = protection[account];
         return (p.firstTxTime, p.txCount, p.lastBlockNumber, p.whitelisted);
+    }
+
+    function lastTradeBlock(address account) external view returns (uint256) {
+        return protection[account].lastBlockNumber;
     }
 }

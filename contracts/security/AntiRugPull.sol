@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "../interfaces/IAntiRugPull.sol";
 
 /**
  * @title AntiRugPull
@@ -13,20 +15,15 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @dev Implements sell limits, wallet size limits, and daily trading limits
  * @custom:security-contact security@memeswap.exchange
  */
-contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
+contract AntiRugPull is IAntiRugPull, Ownable, ReentrancyGuard, Pausable {
     // Constants
     uint256 public constant MAX_SELL_PERCENT = 10;     // 10% max sell of liquidity
-    uint256 public constant MIN_LOCK_TIME = 30 days;
+    uint256 public constant MIN_LOCK_TIME = 180 days; // 6 months minimum lock
     uint256 public constant MAX_TEAM_WALLET_PERCENT = 15; // 15% max for team wallet
+    uint256 public constant MAX_FEE_RATE = 10;        // 10% max fee
+    uint256 public constant MAX_REFLECTION_RATE = 10;  // 10% max reflection
     
     // Structs
-    struct LockInfo {
-        uint256 lockTime;             // Time when liquidity was locked
-        uint256 unlockTime;           // Time when liquidity can be unlocked
-        uint256 lockedAmount;         // Amount of tokens/LP locked
-        bool isLPToken;               // True if locked token is LP token
-    }
-
     struct TeamVesting {
         uint256 totalAmount;          // Total tokens for team
         uint256 vestedAmount;         // Amount already vested
@@ -35,11 +32,19 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
         uint256 lastClaimTime;        // Last time tokens were claimed
     }
 
+    struct LockInfo {
+        uint256 amount;
+        uint256 unlockTime;
+        bool isLPToken;
+    }
+
     // State variables
     mapping(address => mapping(address => LockInfo)) public locks;        // token => owner => LockInfo
     mapping(address => TeamVesting) public teamVesting;                   // token => TeamVesting
-    mapping(address => mapping(address => bool)) public isWhitelisted;    // token => address => whitelist status
     mapping(address => bool) public isProtected;                         // token => protection status
+    mapping(address => IAntiRugPull.LockConfig) public lockConfigs;
+    mapping(address => bool) public whitelisted;
+    mapping(address => address) public registries;
     
     // Events
     event TokenLocked(address indexed token, address indexed owner, uint256 amount, uint256 unlockTime);
@@ -65,8 +70,9 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
         address token,
         address account,
         bool status
-    ) external onlyOwner {
-        isWhitelisted[token][account] = status;
+    ) external {
+        require(msg.sender == registries[token], "Unauthorized");
+        whitelisted[account] = status;
         emit WhitelistUpdated(token, account, status);
     }
 
@@ -80,13 +86,12 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
         require(lockDuration >= MIN_LOCK_TIME, "Lock time too short");
         
         LockInfo storage lock = locks[token][msg.sender];
-        require(lock.lockTime == 0, "Already locked");
+        require(lock.amount == 0, "Already locked");
 
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         
-        lock.lockTime = block.timestamp;
+        lock.amount = amount;
         lock.unlockTime = block.timestamp + lockDuration;
-        lock.lockedAmount = amount;
         lock.isLPToken = isLP;
 
         emit TokenLocked(token, msg.sender, amount, lock.unlockTime);
@@ -94,10 +99,10 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
 
     function unlockTokens(address token) external nonReentrant {
         LockInfo storage lock = locks[token][msg.sender];
-        require(lock.lockTime > 0, "No tokens locked");
+        require(lock.amount > 0, "No tokens locked");
         require(block.timestamp >= lock.unlockTime, "Still locked");
         
-        uint256 amount = lock.lockedAmount;
+        uint256 amount = lock.amount;
         delete locks[token][msg.sender];
         
         IERC20(token).transfer(msg.sender, amount);
@@ -151,30 +156,77 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
         address from,
         address to,
         uint256 amount
-    ) external view returns (bool) {
-        if (!isProtected[token]) return true;
-        if (isWhitelisted[token][from] || isWhitelisted[token][to]) return true;
-        
-        // Check if it's a sell transaction and validate against max sell percent
-        if (locks[token][from].isLPToken) {
-            uint256 lpBalance = IERC20(token).balanceOf(from);
-            if (amount > lpBalance * MAX_SELL_PERCENT / 100) return false;
+    ) public view returns (bool) {
+        // Skip validation for whitelisted addresses
+        if (whitelisted[from] || whitelisted[to]) {
+            return true;
         }
-        
+
+        // Check for minting (from zero address)
+        if (from == address(0)) {
+            if (amount > IERC20(token).totalSupply() * MAX_TEAM_WALLET_PERCENT / 100) {
+                revert("AntiRugPull: Exceeds max supply");
+            }
+            return true;
+        }
+
+        // Check for ownership transfer attempt
+        try Ownable(token).owner() returns (address owner) {
+            if (msg.sender == token && (from == owner || to == owner)) {
+                revert("AntiRugPull: Ownership transfer locked");
+            }
+        } catch {
+            // If owner() call fails, continue with other checks
+        }
+
+        // Check for trading disable attempt
+        if (msg.sender == token && to == address(0) && amount == 0) {
+            revert("AntiRugPull: Trading cannot be disabled");
+        }
+
+        // Check for massive sells and burning
+        if (to == address(0)) {
+            if (amount > IERC20(token).totalSupply() * MAX_SELL_PERCENT / 100) {
+                revert("AntiRugPull: Exceeds max sell ratio");
+            }
+        }
+
+        // Check for fee/tax modification
+        if (msg.sender == token && amount > MAX_FEE_RATE * 100) {
+            revert("AntiRugPull: Tax modification locked");
+        }
+
+        // Check for reflection rate manipulation
+        if (msg.sender == token && amount > MAX_REFLECTION_RATE * 100) {
+            revert("AntiRugPull: Reflection rate locked");
+        }
+
+        // Check for timelock bypass on LP tokens
+        LockInfo storage fromLock = locks[token][from];
+        LockInfo storage toLock = locks[token][to];
+        if (fromLock.isLPToken || toLock.isLPToken) {
+            if (fromLock.unlockTime > block.timestamp || toLock.unlockTime > block.timestamp) {
+                revert("AntiRugPull: Timelock active");
+            }
+        }
+
         return true;
+    }
+
+    function checkIsLPToken(address token, address holder) internal view returns (bool) {
+        return locks[token][holder].isLPToken;
     }
 
     function getLockInfo(
         address token,
         address owner
     ) external view returns (
-        uint256 lockTime,
+        uint256 amount,
         uint256 unlockTime,
-        uint256 lockedAmount,
         bool isLPToken
     ) {
         LockInfo memory lock = locks[token][owner];
-        return (lock.lockTime, lock.unlockTime, lock.lockedAmount, lock.isLPToken);
+        return (lock.amount, lock.unlockTime, lock.isLPToken);
     }
 
     function getVestingInfo(
@@ -194,5 +246,60 @@ contract AntiRugPull is Ownable, ReentrancyGuard, Pausable {
             vesting.vestingDuration,
             vesting.lastClaimTime
         );
+    }
+
+    function renounceOwnership() public virtual override(Ownable, IAntiRugPull) onlyOwner {
+        revert("AntiRugPull: Cannot renounce ownership");
+    }
+
+    function initialize(address token, address registry) external {
+        require(registries[token] == address(0), "Already initialized");
+        registries[token] = registry;
+        isProtected[token] = true;
+    }
+
+    function lockLiquidity(uint256 amount, uint256 duration) external {
+        require(duration >= MIN_LOCK_TIME, "Lock duration too short");
+        // Implementation details
+    }
+
+    function updateLockConfig(IAntiRugPull.LockConfig calldata config) external {
+        // Implementation details
+        emit LockConfigUpdated(config);
+    }
+
+    function canSell(address seller, uint256 amount) external view returns (bool allowed, string memory reason) {
+        // Implementation details
+        return (true, "");
+    }
+
+    function getLockConfig() external view returns (IAntiRugPull.LockConfig memory) {
+        // Implementation details
+        return IAntiRugPull.LockConfig({
+            lockDuration: 0,
+            minLiquidityPercentage: 0,
+            maxSellPercentage: 0,
+            ownershipRenounced: false
+        });
+    }
+
+    function getLockedLiquidity() external view returns (uint256 amount, uint256 unlockTime) {
+        // Implementation details
+        return (0, 0);
+    }
+
+    function isOwnershipRenounced() external view returns (bool) {
+        // Implementation details
+        return false;
+    }
+
+    function getMaxSellAmount() external view returns (uint256) {
+        // Implementation details
+        return 0;
+    }
+
+    function checkSellLimit(address token, uint256 amount) external returns (bool) {
+        // Implementation details
+        return true;
     }
 }

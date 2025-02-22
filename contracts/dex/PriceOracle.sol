@@ -119,13 +119,12 @@ contract PriceOracle is Initializable, OwnableUpgradeable, PausableUpgradeable {
     }
 
     function _isD4LToken(address token) internal view returns (bool) {
-        address factory = registry.getContractAddress("TOKEN_FACTORY");
+        address factory = registry.getContractAddressByName("TOKEN_FACTORY");
         return ITokenFactory(factory).isD4LToken(token);
-        
     }
 
     function _getD4LTokenPrice(address token) internal view returns (uint256) {
-        address curve = registry.getContractAddress("HYDRA_CURVE");
+        address curve = registry.getContractAddressByName("HYDRA_CURVE");
         return IHydraCurve(curve).calculatePrice(token, PRICE_PRECISION);
     }
 

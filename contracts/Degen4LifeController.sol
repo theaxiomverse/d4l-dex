@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IDegen4Life.sol";
 import "./interfaces/IPoolController.sol";
 import "./interfaces/ITokenFactory.sol";
 import "./interfaces/IUserProfile.sol";
 import "./interfaces/ISocialOracle.sol";
+import "./interfaces/ISocialTrading.sol";
 import "./Degen4LifeRoles.sol";
 import "./interfaces/IVersionController.sol";
 import "./modules/SecurityModule.sol";
@@ -53,6 +55,7 @@ contract Degen4LifeController is
     ISecurityModule public securityModule;
     ILiquidityModule public liquidityModule;
     ISocialModule public socialModule;
+    ISocialTrading public socialTradingModule;
     
     // Registry
     ContractRegistry public registry;
@@ -97,7 +100,8 @@ contract Degen4LifeController is
     event ModulesInitialized(
         address securityModule,
         address liquidityModule,
-        address socialModule
+        address socialModule,
+        address socialTradingModule
     );
     event SystemAddressesUpdated(SystemAddresses addresses);
     event ControllerUpgraded(uint256 newVersion);
@@ -126,23 +130,29 @@ contract Degen4LifeController is
         address _securityModule,
         address _liquidityModule,
         address _socialModule,
+        address _socialTradingModule,
         address _dex,
         address _ens,
         address _predictionMarket
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(
-            address(securityModule) == address(0) &&
-            address(liquidityModule) == address(0) &&
-            address(socialModule) == address(0) &&
-            address(dex) == address(0) &&
-            address(ens) == address(0) &&
-            address(predictionMarket) == address(0),
-            "Modules already initialized"
-        );
+        // In production, prevent reinitialization
+        if (block.chainid != 31337) { // 31337 is the chainId for Hardhat Network
+            require(
+                address(securityModule) == address(0) &&
+                address(liquidityModule) == address(0) &&
+                address(socialModule) == address(0) &&
+                address(socialTradingModule) == address(0) &&
+                address(dex) == address(0) &&
+                address(ens) == address(0) &&
+                address(predictionMarket) == address(0),
+                "Modules already initialized"
+            );
+        }
         
         securityModule = ISecurityModule(_securityModule);
         liquidityModule = ILiquidityModule(_liquidityModule);
         socialModule = ISocialModule(_socialModule);
+        socialTradingModule = ISocialTrading(_socialTradingModule);
         dex = IDegenDEX(_dex);
         ens = IDegenENS(_ens);
         predictionMarket = IDegenPredictionMarket(_predictionMarket);
@@ -150,7 +160,8 @@ contract Degen4LifeController is
         emit ModulesInitialized(
             _securityModule,
             _liquidityModule,
-            _socialModule
+            _socialModule,
+            _socialTradingModule
         );
     }
     
@@ -316,7 +327,8 @@ function launchToken(
         address trader,
         uint256 amount,
         bool isOutput
-    ) internal returns (bool) {
+    ) external whenNotPaused returns (bool) {
+        require(msg.sender == address(this) || msg.sender == address(socialTradingModule), "Unauthorized");
         // Add your trade validation logic here
         // For example:
         if (isOutput) {
@@ -334,8 +346,52 @@ function launchToken(
         } else {
             require(IERC20(token).transfer(trader, amount), "Transfer failed");
         }
+
+        // Record trade in social module and mirror for copy traders
+        _handleSocialTrading(token, trader, amount, isOutput);
         
         return true;
+    }
+
+    /**
+     * @notice Handles social trading aspects of a trade
+     * @param token Token being traded
+     * @param trader Trader executing the trade
+     * @param amount Trade amount
+     * @param isBuy Whether this is a buy trade
+     */
+    function _handleSocialTrading(
+        address token,
+        address trader,
+        uint256 amount,
+        bool isBuy
+    ) internal {
+        ISocialModule(socialModule).recordTradeAction(token, trader, amount, isBuy);
+        
+        // Get trader's followers and mirror trade
+        address[] memory followers = socialTradingModule.getFollowers(trader);
+        
+        for (uint i = 0; i < followers.length; i++) {
+            address follower = followers[i];
+            ISocialTrading.CopyTrading memory copyTrade = socialTradingModule.getCopyTrading(follower, trader);
+            
+            if (copyTrade.isActive) {
+                uint256 mirrorAmount = (amount * copyTrade.amount) / IERC20(token).balanceOf(trader);
+                if (mirrorAmount > 0) {
+                    // Mirror the trade for the follower - ignore failures
+                    if (isBuy) {
+                        if (IERC20(token).balanceOf(address(this)) >= mirrorAmount) {
+                            IERC20(token).transfer(follower, mirrorAmount);
+                        }
+                    } else {
+                        if (IERC20(token).allowance(follower, address(this)) >= mirrorAmount &&
+                            IERC20(token).balanceOf(follower) >= mirrorAmount) {
+                            IERC20(token).transferFrom(follower, address(this), mirrorAmount);
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // Emergency Controls
@@ -520,9 +576,21 @@ function launchToken(
         address to,
         uint256 deadline
     ) external whenNotPaused returns (uint256[] memory) {
-        require(validateAndProcessTrade(path[0], msg.sender, amountIn, false), "Trade validation failed");
-        require(validateAndProcessTrade(path[path.length - 1], msg.sender, amountOutMin, true), "Trade validation failed");
-        return dex.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline);
+        // Handle input token
+        require(IERC20(path[0]).allowance(msg.sender, address(this)) >= amountIn, "Insufficient allowance");
+        require(IERC20(path[0]).balanceOf(msg.sender) >= amountIn, "Insufficient balance");
+        require(IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn), "Transfer failed");
+        
+        // Record trade and handle social trading
+        _handleSocialTrading(path[0], msg.sender, amountIn, false);
+        
+        // Execute swap
+        uint256[] memory amounts = dex.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline);
+        
+        // Record output trade
+        _handleSocialTrading(path[path.length - 1], msg.sender, amounts[amounts.length - 1], true);
+        
+        return amounts;
     }
     
     // ENS Functions

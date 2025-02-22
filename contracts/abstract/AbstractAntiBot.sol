@@ -183,16 +183,16 @@ abstract contract AbstractAntiBot is Ownable, IAntiBot {
     /// @notice Updates the protection configuration
     function updateProtectionConfig(
         uint256 maxAmount,
-        uint256 window,
+        uint256 newTimeWindow,
         uint256 maxTxPerWindow
     ) external override onlyOwner {
-        if (maxAmount < MIN_TRANSACTION_AMOUNT) revert InvalidConfig();
-        if (window < MIN_TIME_WINDOW || window > MAX_TIME_WINDOW) revert InvalidConfig();
-        if (maxTxPerWindow == 0 || maxTxPerWindow > MAX_TRANSACTIONS_PER_WINDOW) revert InvalidConfig();
+        require(maxAmount >= MIN_TRANSACTION_AMOUNT, "Amount too small");
+        require(newTimeWindow >= MIN_TIME_WINDOW && newTimeWindow <= MAX_TIME_WINDOW, "Invalid time window");
+        require(maxTxPerWindow > 0 && maxTxPerWindow <= MAX_TRANSACTIONS_PER_WINDOW, "Invalid max transactions");
 
         _config = BotConfig({
             maxAmount: uint96(maxAmount),
-            timeWindow: uint32(window),
+            timeWindow: uint32(newTimeWindow),
             maxTxPerWindow: uint32(maxTxPerWindow),
             paused: _config.paused,
             reserved: 0
@@ -200,7 +200,7 @@ abstract contract AbstractAntiBot is Ownable, IAntiBot {
 
         emit ConfigUpdated(
             uint96(maxAmount),
-            uint32(window),
+            uint32(newTimeWindow),
             uint32(maxTxPerWindow)
         );
     }

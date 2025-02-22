@@ -91,6 +91,7 @@ abstract contract AbstractLiquidityPool is Owned, ReentrancyGuard, ILiquidityPoo
         // Initialize pool
         _pools[token] = PoolInfo({
             token: token,
+            lpToken: lpToken,
             tokenReserve: initialTokenAmount,
             ethReserve: initialEthAmount,
             totalLiquidity: initialTokenAmount + initialEthAmount,
@@ -146,7 +147,13 @@ abstract contract AbstractLiquidityPool is Owned, ReentrancyGuard, ILiquidityPoo
         lpTokens = _calculateLPTokens(pool, optimalTokenAmount, optimalEthAmount);
         _mintLPTokens(pool.lpToken, msg.sender, lpTokens);
 
-        emit LiquidityAdded(msg.sender, optimalTokenAmount, optimalEthAmount, lpTokens);
+        emit LiquidityAdded(
+            token,
+            msg.sender,
+            optimalTokenAmount,
+            optimalEthAmount,
+            lpTokens
+        );
     }
 
     /// @notice Removes liquidity from a pool
@@ -183,7 +190,13 @@ abstract contract AbstractLiquidityPool is Owned, ReentrancyGuard, ILiquidityPoo
         require(ERC20(token).transfer(msg.sender, tokenAmount), "Token transfer failed");
         payable(msg.sender).transfer(ethAmount);
 
-        emit LiquidityRemoved(msg.sender, tokenAmount, ethAmount, lpTokenAmount);
+        emit LiquidityRemoved(
+            token,
+            msg.sender,
+            tokenAmount,
+            ethAmount,
+            lpTokenAmount
+        );
     }
 
     /// @notice Swaps tokens using the pool
@@ -247,7 +260,7 @@ abstract contract AbstractLiquidityPool is Owned, ReentrancyGuard, ILiquidityPoo
         uint96 ethReserve
     ) {
         PoolInfo storage pool = _pools[token];
-        return (pool.tokenReserve, pool.ethReserve);
+        return (uint96(pool.tokenReserve), uint96(pool.ethReserve));
     }
 
     /// @notice Gets pool information

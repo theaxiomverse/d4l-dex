@@ -82,7 +82,7 @@ contract LiquidityModule is
         require(params.lockDuration >= MIN_LOCK_DURATION && params.lockDuration <= MAX_LOCK_DURATION, "Invalid lock duration");
 
         // Get pool contract
-        ILiquidityPool pool = ILiquidityPool(registry.getContractAddress("LIQUIDITY_POOL"));
+        ILiquidityPool pool = ILiquidityPool(registry.getContractAddressByName("LIQUIDITY_POOL"));
 
         // Transfer initial tokens from creator
         IERC20(token).transferFrom(creator, address(this), params.tokenReserve);
@@ -112,7 +112,7 @@ contract LiquidityModule is
         uint256 tokenAmount,
         uint256 minEthAmount
     ) external payable nonReentrant whenNotPaused {
-        ILiquidityPool pool = ILiquidityPool(registry.getContractAddress("LIQUIDITY_POOL"));
+        ILiquidityPool pool = ILiquidityPool(registry.getContractAddressByName("LIQUIDITY_POOL"));
 
         // Transfer tokens
         IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
@@ -141,7 +141,7 @@ contract LiquidityModule is
         uint256 minTokenAmount,
         uint256 minEthAmount
     ) external nonReentrant {
-        ILiquidityPool pool = ILiquidityPool(registry.getContractAddress("LIQUIDITY_POOL"));
+        ILiquidityPool pool = ILiquidityPool(registry.getContractAddressByName("LIQUIDITY_POOL"));
 
         // Remove liquidity
         (uint256 tokenAmount, uint256 ethAmount) = pool.removeLiquidity(
@@ -165,7 +165,7 @@ contract LiquidityModule is
 
     // View functions
     function getPoolInfo(address token) external view returns (ILiquidityPool.PoolInfo memory) {
-        ILiquidityPool pool = ILiquidityPool(registry.getContractAddress("LIQUIDITY_POOL"));
+        ILiquidityPool pool = ILiquidityPool(registry.getContractAddressByName("LIQUIDITY_POOL"));
         return pool.getPoolInfo(token);
     }
 
@@ -178,9 +178,9 @@ contract LiquidityModule is
         uint256 minEthAmount,
         uint256 maxEthAmount
     ) {
-        ILiquidityPool pool = ILiquidityPool(registry.getContractAddress("LIQUIDITY_POOL"));
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
-        IPriceOracle oracle = IPriceOracle(registry.getContractAddress("PRICE_ORACLE"));
+        ILiquidityPool pool = ILiquidityPool(registry.getContractAddressByName("LIQUIDITY_POOL"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
+        IPriceOracle oracle = IPriceOracle(registry.getContractAddressByName("PRICE_ORACLE"));
 
         // Get pool info
         (uint256 tokenReserve, uint256 ethReserve,,,,, bool autoLiquidity) = pool.getPool(token);

@@ -13,7 +13,7 @@ import "../interfaces/IUserProfile.sol";
 import "../tokens/UserToken.sol";
 import "../tokenomics/tokenomics.sol";
 import "../registry/ContractRegistry.sol";
-import "hardhat/console.sol";
+import "forge-std/console.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -44,7 +44,6 @@ contract TokenFactory is Initializable, OwnableUpgradeable, ITokenFactory {
     mapping(address => bool) public isFactoryToken;
     
     // Events
- 
     event UpgradeProposed(address indexed newImplementation, string version, uint256 timestamp);
     event TokenCreationStep(string step, string message);
     event TokenCreationError(string step, string error);
@@ -55,15 +54,6 @@ contract TokenFactory is Initializable, OwnableUpgradeable, ITokenFactory {
     
     // Track free tier usage
     mapping(address => uint256) public freeTokensCreated;
-    
-    // Structs
-    struct TokenFlags {
-        bool mintable;
-        bool burnable; 
-        bool pausable;
-        bool transferPaused;
-        uint248 reserved;
-    }
 
     // Add missing constants and state variables
     uint256 private constant FEE_BPS = 10000;

@@ -5,6 +5,7 @@ pragma solidity ^0.8.20;
 interface ILiquidityPool {
     struct PoolInfo {
         address token;          // 20 bytes
+        address lpToken;        // 20 bytes
         uint256 tokenReserve;  // 32 bytes
         uint256 ethReserve;    // 32 bytes
         uint256 totalLiquidity;// 32 bytes

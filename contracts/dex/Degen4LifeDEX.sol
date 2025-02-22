@@ -122,7 +122,7 @@ contract Degen4LifeDEX is
         IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
 
         // Calculate output amount using HydraCurve
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
         amountOut = curve.calculatePrice(tokenOut, amountIn);
 
         // Apply fees
@@ -166,7 +166,7 @@ contract Degen4LifeDEX is
         require(isTokenAccepted(tokenOut), "Token not accepted");
 
         // Calculate output amount using HydraCurve
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
         amountOut = curve.calculatePrice(tokenOut, msg.value);
 
         // Apply fees
@@ -214,7 +214,7 @@ contract Degen4LifeDEX is
         IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
 
         // Calculate output amount using HydraCurve
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
         amountOut = curve.calculatePrice(WETH, amountIn);
 
         // Apply fees
@@ -254,7 +254,7 @@ contract Degen4LifeDEX is
         address tokenOut,
         uint256 amountIn
     ) external view returns (uint256 amountOut) {
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
         amountOut = curve.calculatePrice(tokenOut, amountIn);
 
         // Apply fees
@@ -267,7 +267,7 @@ contract Degen4LifeDEX is
         uint256 amount,
         bool isBuy
     ) external view returns (uint256) {
-        IHydraCurve curve = IHydraCurve(registry.getContractAddress("HYDRA_CURVE"));
+        IHydraCurve curve = IHydraCurve(registry.getContractAddressByName("HYDRA_CURVE"));
         return curve.calculatePriceImpact(token, amount, isBuy);
     }
 
@@ -321,7 +321,7 @@ contract Degen4LifeDEX is
     }
 
     function registerD4LToken(address token, bool status) external {
-        require(msg.sender == registry.getContractAddress("TOKEN_FACTORY"), "Only factory");
+        require(msg.sender == registry.getContractAddressByName("TOKEN_FACTORY"), "Only factory");
         require(token != address(0), "Invalid token");
         isD4LToken[token] = status;
         if (status) {
